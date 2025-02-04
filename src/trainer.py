@@ -83,7 +83,7 @@ class PPOModule(pl.LightningModule):
 
             obs = next_obs
             if terminated or truncated:
-                obs = self.env.reset()
+                obs, info = self.env.reset()
 
     def train_dataloader(self):
         """
