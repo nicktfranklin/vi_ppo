@@ -42,23 +42,32 @@ class Mlp(nn.Module):
 
 
 class ActorCritic(nn.Module):
-    def __init__(self, actor_net: nn.Module, critic: nn.Module):
+    def __init__(
+        self,
+        actor_net: nn.Module,
+        critic: nn.Module,
+        feature_extractor: nn.Module | None = None,
+    ):
         super().__init__()
         self.actor = actor_net
         self.critic = critic
+        self.feature_extractor = (
+            feature_extractor if feature_extractor else nn.Identity()
+        )
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        x = self.feature_extractor(x)
         action_logits = self.actor(x)
         critic_values = self.critic(x)
 
         return action_logits, critic_values
 
     def sample_action(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        action_logits = self.actor(x)
-        log_probs = F.log_softmax(action_logits, dim=-1)
+        logits, values = self(x)
+        log_probs = F.log_softmax(logits, dim=-1)
         a = torch.multinomial(log_probs.exp(), num_samples=1)
         log_prob = log_probs.gather(dim=-1, index=a).squeeze(-1)
-        return a, log_prob
+        return a, log_prob, values
 
     def loss(
         self,
