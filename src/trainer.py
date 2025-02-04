@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import lightning as pl
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -52,6 +53,12 @@ class PPOModule(pl.LightningModule):
 
     def forward(self, x):
         return self.actor_critic(x)
+
+    def predict(self, x: np.ndarray):
+        """Predict the action to take given the current state."""
+        x = torch.tensor(x, dtype=torch.float32).unsqueeze(0).to(self.device)
+        action, _ = self.actor_critic.sample_action(x)
+        return action.item()
 
     def collect_rollout(self):
         """Collects a rollout using the current policy."""
@@ -105,30 +112,30 @@ class PPOModule(pl.LightningModule):
 
         return DataLoader(self.rollout_dataset, batch_size=64, shuffle=True)
 
-    def compute_loss(self, batch):
+    def compute_loss(self, batch: dict):
         """
         Unpacks the batch and computes the PPO loss.
         Expects the batch to provide:
-          states, actions, old_log_probs, returns, advantages.
+          obs, actions, old_log_probs, returns, advantages.
         """
-        states, actions, old_log_probs, returns, advantages = batch
-
         # Forward pass through actor-critic.
-        action_logits, values = self.actor_critic(states)
+        action_logits, values = self.actor_critic(batch["observations"])
         dist = Categorical(logits=action_logits)
-        log_probs = dist.log_prob(actions)
+        log_probs = dist.log_prob(batch["actions"])
 
         # Compute probability ratio.
-        ratio = torch.exp(log_probs - old_log_probs)
+        ratio = torch.exp(log_probs - batch["log_probs"])
         clipped_ratio = torch.clamp(
             ratio, 1 - self.config.clip_epsilon, 1 + self.config.clip_epsilon
         )
 
         # Policy loss.
-        policy_loss = -torch.min(ratio * advantages, clipped_ratio * advantages).mean()
+        policy_loss = -torch.min(
+            ratio * batch["advantages"], clipped_ratio * batch["advantages"]
+        ).mean()
 
         # Value loss.
-        value_loss = nn.functional.mse_loss(values.squeeze(), returns)
+        value_loss = nn.functional.mse_loss(values.squeeze(), batch["returns"])
 
         # Entropy bonus.
         entropy_bonus = dist.entropy().mean()

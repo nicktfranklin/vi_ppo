@@ -1,6 +1,7 @@
 from collections import namedtuple
 
 import numpy as np
+import torch
 
 # Define a simple dataset object (OARO tuple with GAE values).
 # OARO stands for Observation, Action, Reward, Observation (successor observation)
@@ -16,6 +17,42 @@ OARODataset = namedtuple(
         "log_probs",
     ],
 )
+
+
+class RolloutDataset:
+    def __init__(
+        self, obs, actions, rewards, next_obs, advantages, returns, log_probs=None
+    ):
+        self.obs = self._stack(obs)
+        self.actions = self._stack(actions)
+        self.rewards = self._stack(rewards)
+        self.next_obs = self._stack(next_obs)
+        self.advantages = self._stack(advantages)
+        self.returns = self._stack(returns)
+        self.log_probs = self._stack(log_probs) if log_probs is not None else None
+
+    @staticmethod
+    def _stack(x: np.ndarray) -> torch.Tensor:
+        x = torch.from_numpy(np.stack(x))
+        if x.dtype == torch.int64 or x.dtype == torch.int32:
+            return x.long()
+        if x.dtype == torch.float64 or x.dtype == torch.float32:
+            return x.float()
+        raise ValueError(f"Unsupported dtype {x.dtype}")
+
+    def __len__(self):
+        return len(self.obs)
+
+    def __getitem__(self, idx):
+        return {
+            "observations": self.obs[idx],
+            "actions": self.actions[idx],
+            "rewards": self.rewards[idx],
+            "next_observations": self.next_obs[idx],
+            "advantages": self.advantages[idx],
+            "returns": self.returns[idx],
+            "log_probs": self.log_probs[idx] if self.log_probs is not None else None,
+        }
 
 
 class RolloutBuffer:
@@ -78,7 +115,7 @@ class RolloutBuffer:
         """
         assert (
             len(values) == len(self.rewards) + 1
-        ), "Expected len(values) == len(rewards) + 1"
+        ), f"Expected len(values) == len(rewards) + 1, found lengths {len(values)} and {len(self.rewards)}"
         advantages = [0] * len(self.rewards)
         gae = 0
         # Iterate in reverse order over the collected experiences
@@ -104,7 +141,7 @@ class RolloutBuffer:
         Returns:
             returns (list): Monte Carlo estimates of rewards-to-go for each timestep.
         """
-        returns = [0] * len(self.rewards)
+        returns = [0] * (len(self.rewards) + 1)
         R = 0
         # Process the rewards in reverse order
         for t in reversed(range(len(self.rewards))):
@@ -148,13 +185,27 @@ class RolloutBuffer:
             values = self.compute_rewards_to_go(gamma)
         advantages, returns = self.compute_gae(values, gamma, gae_lambda)
 
-        dataset = OARODataset(
-            observations=np.stack(self.observations),
-            actions=np.stack(self.actions),
-            rewards=np.stack(self.rewards),
-            next_observations=np.stack(self.next_observations),
-            advantages=np.stack(advantages),
-            returns=np.stack(returns),
-            log_probs=self.log_probs if any(self.log_probs) else None,
+        # dataset = OARODataset(
+        #     observations=torch.from_numpy(np.stack(self.observations)),
+        #     actions=torch.from_numpy(np.stack(self.actions)),
+        #     rewards=torch.from_numpy(np.stack(self.rewards)),
+        #     next_observations=torch.from_numpy(np.stack(self.next_observations)),
+        #     advantages=torch.from_numpy(np.stack(advantages)),
+        #     returns=torch.from_numpy(np.stack(returns)),
+        #     log_probs=(
+        #         torch.from_numpy(np.stack(self.log_probs))
+        #         if any(self.log_probs)
+        #         else None
+        #     ),
+        # )
+
+        dataset = RolloutDataset(
+            obs=self.observations,
+            actions=self.actions,
+            rewards=self.rewards,
+            next_obs=self.next_observations,
+            advantages=advantages,
+            returns=returns,
+            log_probs=self.log_probs,
         )
         return dataset
