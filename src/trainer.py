@@ -1,26 +1,35 @@
-import pytorch_lightning as pl
+from dataclasses import dataclass
+
+import lightning as pl
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Categorical
 from torch.utils.data import DataLoader
 
-from actor_critic import ActorCritic
-from buffer import RolloutBuffer
+from src.actor_critic import ActorCritic
+from src.buffer import RolloutBuffer
 
 
-class PPOTrainer(pl.LightningModule):
+@dataclass
+class PPOModuleConfig:
+    rollout_length: int = 2048
+    update_epochs: int = 10
+    lr: float = 3e-4
+    gamma: float = 0.99
+    clip_epsilon: float = 0.2
+    value_coeff: float = 0.5
+    entropy_coeff: float = 0.01
+
+
+class PPOModule(pl.LightningModule):
+    config_class = PPOModuleConfig
+
     def __init__(
         self,
         actor_critic: ActorCritic,
         env,
-        rollout_length: int,
-        update_epochs: int,
-        lr=3e-4,
-        gamma=0.99,
-        clip_epsilon=0.2,
-        value_coeff=0.5,
-        entropy_coeff=0.01,
+        config: PPOModuleConfig,
     ):
         """
         Args:
@@ -34,13 +43,7 @@ class PPOTrainer(pl.LightningModule):
         super().__init__()
         self.actor_critic = actor_critic
         self.env = env
-        self.rollout_length = rollout_length
-        self.update_epochs = update_epochs
-        self.lr = lr
-        self.gamma = gamma
-        self.clip_epsilon = clip_epsilon
-        self.value_coeff = value_coeff
-        self.entropy_coeff = entropy_coeff
+        self.config = config
 
         # Rollout buffer should have methods to add transitions, get a dataset, and clear itself.
         self.buffer = RolloutBuffer()
@@ -52,35 +55,35 @@ class PPOTrainer(pl.LightningModule):
 
     def collect_rollout(self):
         """Collects a rollout using the current policy."""
-        state = self.env.reset()
-        for _ in range(self.rollout_length):
+        obs, info = self.env.reset()
+        self.actor_critic = self.actor_critic.to(self.device)
+        for _ in range(self.config.rollout_length):
             # Convert state to tensor and add batch dimension.
-            state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-            action_logits, _ = self.actor_critic(state_tensor)
-            dist = Categorical(logits=action_logits)
-            action = dist.sample()
-            log_prob = dist.log_prob(action)
+            obs_tensor = (
+                torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device)
+            )
+
+            with torch.no_grad():
+                action, log_prob = self.actor_critic.sample_action(obs_tensor)
 
             # Step in the environment
-            next_state, reward, terminated, truncated, info = self.env.step(
-                action.item()
-            )
+            next_obs, reward, terminated, truncated, info = self.env.step(action.item())
 
             # Store the transition (assuming your buffer.add signature matches these arguments)
             self.buffer.add(
-                obs=state,
+                obs=obs,
                 act=action.item(),
                 rew=reward,
-                next_obs=next_state,
+                next_obs=next_obs,
                 terminated=terminated,
                 truncated=truncated,
                 info=info,
                 log_probs=log_prob.item(),
             )
 
-            state = next_state
+            obs = next_obs
             if terminated or truncated:
-                state = self.env.reset()
+                obs = self.env.reset()
 
     def train_dataloader(self):
         """
@@ -97,7 +100,7 @@ class PPOTrainer(pl.LightningModule):
 
         # Increment epoch counter and reset when reaching update_epochs.
         self.current_update_epoch += 1
-        if self.current_update_epoch >= self.update_epochs:
+        if self.current_update_epoch >= self.config.update_epochs:
             self.current_update_epoch = 0
 
         return DataLoader(self.rollout_dataset, batch_size=64, shuffle=True)
@@ -117,7 +120,9 @@ class PPOTrainer(pl.LightningModule):
 
         # Compute probability ratio.
         ratio = torch.exp(log_probs - old_log_probs)
-        clipped_ratio = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon)
+        clipped_ratio = torch.clamp(
+            ratio, 1 - self.config.clip_epsilon, 1 + self.config.clip_epsilon
+        )
 
         # Policy loss.
         policy_loss = -torch.min(ratio * advantages, clipped_ratio * advantages).mean()
@@ -130,8 +135,8 @@ class PPOTrainer(pl.LightningModule):
 
         total_loss = (
             policy_loss
-            + self.value_coeff * value_loss
-            - self.entropy_coeff * entropy_bonus
+            + self.config.value_coeff * value_loss
+            - self.config.entropy_coeff * entropy_bonus
         )
         return total_loss
 
@@ -141,4 +146,4 @@ class PPOTrainer(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        return optim.Adam(self.actor_critic.parameters(), lr=self.lr)
+        return optim.Adam(self.actor_critic.parameters(), lr=self.config.lr)

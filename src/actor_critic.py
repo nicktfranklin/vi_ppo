@@ -12,7 +12,7 @@ class Mlp(nn.Module):
         n_layers: int,
         activation: str = "silu",
     ):
-
+        super().__init__()
         self.input_projection = (
             nn.Linear(input_dims, hidden_dims)
             if (input_dims != hidden_dims)
@@ -24,9 +24,9 @@ class Mlp(nn.Module):
             else nn.Identity()
         )
 
-        self.hidden_layers = [
-            nn.Linear(hidden_dims, hidden_dims) for _ in range(n_layers)
-        ]
+        self.hidden_layers = nn.ModuleList(
+            [nn.Linear(hidden_dims, hidden_dims) for _ in range(n_layers)]
+        )
 
         if activation == "silu":
             self.act_fn = nn.SiLU()
@@ -43,6 +43,7 @@ class Mlp(nn.Module):
 
 class ActorCritic(nn.Module):
     def __init__(self, actor_net: nn.Module, critic: nn.Module):
+        super().__init__()
         self.actor = actor_net
         self.critic = critic
 
@@ -52,10 +53,12 @@ class ActorCritic(nn.Module):
 
         return action_logits, critic_values
 
-    def sample_action(self, x: torch.Tensor) -> torch.Tensor:
+    def sample_action(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         action_logits = self.actor(x)
-        probs = F.softmax(action_logits, dim=-1)
-        return torch.multinomial(probs, num_samples=1)
+        log_probs = F.log_softmax(action_logits, dim=-1)
+        a = torch.multinomial(log_probs.exp(), num_samples=1)
+        log_prob = log_probs.gather(dim=-1, index=a).squeeze(-1)
+        return a, log_prob
 
     def loss(
         self,
