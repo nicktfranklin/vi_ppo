@@ -1,27 +1,17 @@
-from collections import namedtuple
-
 import numpy as np
 import torch
-
-# Define a simple dataset object (OARO tuple with GAE values).
-# OARO stands for Observation, Action, Reward, Observation (successor observation)
-OARODataset = namedtuple(
-    "OARODataset",
-    [
-        "observations",
-        "actions",
-        "rewards",
-        "next_observations",
-        "advantages",
-        "returns",
-        "log_probs",
-    ],
-)
 
 
 class RolloutDataset:
     def __init__(
-        self, obs, actions, rewards, next_obs, advantages, returns, log_probs=None
+        self,
+        obs,
+        actions,
+        rewards,
+        next_obs,
+        advantages,
+        returns,
+        log_probs=None,
     ):
         self.obs = self._stack(obs)
         self.actions = self._stack(actions)
@@ -65,8 +55,21 @@ class RolloutBuffer:
         self.truncated = []
         self.infos = []
         self.log_probs = []
+        self.values = []
+        self.next_values = []  # NEW: For terminal state handling
 
-    def add(self, obs, act, rew, next_obs, terminated, truncated, info, log_probs=None):
+    def add(
+        self,
+        obs,
+        act,
+        rew,
+        next_obs,
+        terminated,
+        truncated,
+        info,
+        log_probs=None,
+        values=None,
+    ):
         """
         Add a transition to the buffer.
 
@@ -87,6 +90,18 @@ class RolloutBuffer:
         self.truncated.append(truncated)
         self.infos.append(info)
         self.log_probs.append(log_probs)
+        self.values.append(values)
+
+    def add_terminal_values(self, final_next_obs_value):
+        """
+        Add the value of the final next_observation to the buffer.
+
+        This is critical for GAE, as the value of the final next_observation is used to compute the advantage estimate.
+
+        Args:
+            final_next_obs_value: The value of the final next_observation.
+        """
+        self.next_values.append(final_next_obs_value)
 
     def clear(self):
         self.observations.clear()
@@ -97,6 +112,8 @@ class RolloutBuffer:
         self.truncated.clear()
         self.infos.clear()
         self.log_probs.clear()
+        self.values.clear()
+        self.next_values.clear()
 
     def compute_gae(self, values, gamma: float = 0.99, gae_lambda: float = 1.0):
         """
@@ -113,9 +130,6 @@ class RolloutBuffer:
             advantages (list): Advantage estimates for each timestep.
             returns (list): Computed returns (advantages + value estimates) for each timestep.
         """
-        assert (
-            len(values) == len(self.rewards) + 1
-        ), f"Expected len(values) == len(rewards) + 1, found lengths {len(values)} and {len(self.rewards)}"
         advantages = [0] * len(self.rewards)
         gae = 0
         # Iterate in reverse order over the collected experiences
@@ -182,22 +196,10 @@ class RolloutBuffer:
         """
 
         if values is None:
-            values = self.compute_rewards_to_go(gamma)
+            values = self.values + [
+                self.next_values[-1]
+            ]  # Include final next_obs value
         advantages, returns = self.compute_gae(values, gamma, gae_lambda)
-
-        # dataset = OARODataset(
-        #     observations=torch.from_numpy(np.stack(self.observations)),
-        #     actions=torch.from_numpy(np.stack(self.actions)),
-        #     rewards=torch.from_numpy(np.stack(self.rewards)),
-        #     next_observations=torch.from_numpy(np.stack(self.next_observations)),
-        #     advantages=torch.from_numpy(np.stack(advantages)),
-        #     returns=torch.from_numpy(np.stack(returns)),
-        #     log_probs=(
-        #         torch.from_numpy(np.stack(self.log_probs))
-        #         if any(self.log_probs)
-        #         else None
-        #     ),
-        # )
 
         dataset = RolloutDataset(
             obs=self.observations,
