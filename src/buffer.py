@@ -56,7 +56,7 @@ class RolloutBuffer:
         self.infos = []
         self.log_probs = []
         self.values = []
-        self.next_values = []  # NEW: For terminal state handling
+        self.next_values = []
 
     def add(
         self,
@@ -69,6 +69,7 @@ class RolloutBuffer:
         info,
         log_probs=None,
         values=None,
+        next_values=None,
     ):
         """
         Add a transition to the buffer.
@@ -91,17 +92,9 @@ class RolloutBuffer:
         self.infos.append(info)
         self.log_probs.append(log_probs)
         self.values.append(values)
+        self.next_values.append(next_values)
 
-    def add_terminal_values(self, final_next_obs_value):
-        """
-        Add the value of the final next_observation to the buffer.
-
-        This is critical for GAE, as the value of the final next_observation is used to compute the advantage estimate.
-
-        Args:
-            final_next_obs_value: The value of the final next_observation.
-        """
-        self.next_values.append(final_next_obs_value)
+        self.adv = []
 
     def clear(self):
         self.observations.clear()
@@ -115,14 +108,20 @@ class RolloutBuffer:
         self.values.clear()
         self.next_values.clear()
 
-    def compute_gae(self, values, gamma: float = 0.99, gae_lambda: float = 1.0):
+    def compute_advantages_and_returns(
+        self, gamma: float = 0.99, gae_lambda: float = 1.0
+    ):
         """
-        Compute Generalized Advantage Estimation (GAE) for the collected experiences.
+        Uses Generalized Advantage Estimation (https://arxiv.org/abs/1506.02438)
+        to compute the advantage. To obtain Monte-Carlo advantage estimate (A(s) = R - V(S))
+        where R is the sum of discounted reward with value bootstrap
+        (because we don't always have full episode), set ``gae_lambda=1.0`` during initialization.
+
+        The TD(lambda) estimator has also two special cases:
+        - TD(1) is Monte-Carlo estimate (sum of discounted rewards)
+        - TD(0) is one-step estimate with bootstrapping (r_t + gamma * v(s_{t+1}))
 
         Args:
-            values (list or np.array): Value estimates for each state in the buffer.
-                                       It should have length len(self.rewards) + 1 (the extra element is
-                                       the value estimate for the last next_observation).
             gamma (float): Discount factor.
             gae_lambda (float): GAE lambda parameter.
 
@@ -132,17 +131,21 @@ class RolloutBuffer:
         """
         advantages = [0] * len(self.rewards)
         gae = 0
+
         # Iterate in reverse order over the collected experiences
-        for t in reversed(range(len(self.rewards))):
+        for step in reversed(range(len(self.rewards))):
+
             # If the episode ended at this timestep, treat it as terminal
-            done = self.terminated[t] or self.truncated[t]
-            next_value = 0 if done else values[t + 1]
-            delta = self.rewards[t] + gamma * next_value - values[t]
+            done = self.terminated[step] or self.truncated[step]
+            next_value = 0 if done else self.next_values[step]
+            delta = self.rewards[step] + gamma * next_value - self.values[step]
+
             # When done, the future advantage is zero
             gae = delta + gamma * gae_lambda * (0 if done else gae)
-            advantages[t] = gae
+            advantages[step] = gae
+
         # Compute returns (target values) as advantages plus the baseline values
-        returns = [adv + val for adv, val in zip(advantages, values[:-1])]
+        returns = [adv + val for adv, val in zip(advantages, self.values)]
         return advantages, returns
 
     def compute_rewards_to_go(self, gamma):
@@ -169,7 +172,6 @@ class RolloutBuffer:
 
     def get_dataset(
         self,
-        values: list | np.ndarray | None = None,
         gamma: float = 0.99,
         gae_lambda: float = 1.0,
     ):
@@ -195,11 +197,7 @@ class RolloutBuffer:
                 - returns: computed return values.
         """
 
-        if values is None:
-            values = self.values + [
-                self.next_values[-1]
-            ]  # Include final next_obs value
-        advantages, returns = self.compute_gae(values, gamma, gae_lambda)
+        advantages, returns = self.compute_advantages_and_returns(gamma, gae_lambda)
 
         dataset = RolloutDataset(
             obs=self.observations,
