@@ -66,9 +66,6 @@ class PPOModule(pl.LightningModule):
         self.actor_critic = self.actor_critic.to(self.device)
         self.total_rewards = 0
 
-        # Store value of final next_obs (critical for GAE)
-        final_next_obs_value = 0
-
         for _ in range(self.config.rollout_length):
             # Convert state to tensor and add batch dimension.
             obs_tensor = (
@@ -82,6 +79,15 @@ class PPOModule(pl.LightningModule):
             next_obs, reward, terminated, truncated, info = self.env.step(action.item())
             self.total_rewards += reward
 
+            with torch.no_grad():
+                # compute the next value
+                next_obs_tensor = (
+                    torch.tensor(next_obs, dtype=torch.float32)
+                    .unsqueeze(0)
+                    .to(self.device)
+                )
+                _, next_value = self.actor_critic(next_obs_tensor)
+
             # Store the transition (assuming your buffer.add signature matches these arguments)
             self.buffer.add(
                 obs=obs,
@@ -93,21 +99,13 @@ class PPOModule(pl.LightningModule):
                 info=info,
                 log_probs=log_prob.detach().clone().item(),
                 values=values.detach().clone().item(),
+                next_values=next_value.detach().clone().item(),
             )
 
             obs = next_obs
-            # Capture final next_obs value
-            if _ == self.config.rollout_length - 1:
-                with torch.no_grad():
-                    final_next_obs_value = self.actor_critic(
-                        torch.tensor(next_obs, dtype=torch.float32)
-                        .unsqueeze(0)
-                        .to(self.device)
-                    )[1].item()
 
             if terminated or truncated:
                 obs, info = self.env.reset()
-        self.buffer.add_terminal_values(final_next_obs_value)
 
     def train_dataloader(self):
         """
