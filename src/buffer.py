@@ -148,28 +148,6 @@ class RolloutBuffer:
         returns = [adv + val for adv, val in zip(advantages, self.values)]
         return advantages, returns
 
-    def compute_rewards_to_go(self, gamma):
-        """
-        Compute the Monte Carlo estimate of rewards-to-go for the collected experiences.
-
-        Args:
-            gamma (float): Discount factor.
-
-        Returns:
-            returns (list): Monte Carlo estimates of rewards-to-go for each timestep.
-        """
-        returns = [0] * (len(self.rewards) + 1)
-        R = 0
-        # Process the rewards in reverse order
-        for t in reversed(range(len(self.rewards))):
-            # Reset the cumulative reward if the episode ended at this step.
-            if self.terminated[t] or self.truncated[t]:
-                R = self.rewards[t]
-            else:
-                R = self.rewards[t] + gamma * R
-            returns[t] = R
-        return returns
-
     def get_dataset(
         self,
         gamma: float = 0.99,
