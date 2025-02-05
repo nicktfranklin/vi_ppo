@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import lightning as pl
 import numpy as np
 import torch
-import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical
 from torch.utils.data import DataLoader
@@ -137,31 +137,31 @@ class PPOModule(pl.LightningModule):
         action_logits, values = self.actor_critic(batch["observations"])
         dist = Categorical(logits=action_logits)
         log_probs = dist.log_prob(batch["actions"])
-
-        # Compute probability ratio.
-        ratio = torch.exp(log_probs - batch["log_probs"])
-        clipped_ratio = torch.clamp(
-            ratio, 1 - self.config.clip_epsilon, 1 + self.config.clip_epsilon
-        )
+        entropy_bonus = dist.entropy().mean()  # Entropy bonus.
 
         # Policy loss.
         advantages = batch["advantages"]
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-        policy_loss = -torch.min(ratio * advantages, clipped_ratio * advantages).mean()
-        self.log("train/policy_loss", policy_loss, prog_bar=False, logger=True)
+
+        # Compute probability ratio.
+        ratio = torch.exp(log_probs - batch["log_probs"])
+        policy_loss_1 = advantages * ratio
+        policy_loss_2 = advantages * torch.clamp(
+            ratio, 1 - self.config.clip_epsilon, 1 + self.config.clip_epsilon
+        )
+        policy_loss = -torch.min(policy_loss_1, policy_loss_2 * advantages).mean()
 
         # Value loss.
-        value_loss = nn.functional.mse_loss(values.squeeze(), batch["returns"])
-        self.log("train/value_loss", value_loss, prog_bar=False, logger=True)
-
-        # Entropy bonus.
-        entropy_bonus = dist.entropy().mean()
+        value_loss = F.mse_loss(values.squeeze(), batch["returns"])
 
         total_loss = (
             policy_loss
             + self.config.value_coeff * value_loss
             - self.config.entropy_coeff * entropy_bonus
         )
+
+        self.log("train/value_loss", value_loss, prog_bar=False, logger=True)
+        self.log("train/policy_loss", policy_loss, prog_bar=False, logger=True)
         self.log("train/loss", total_loss, prog_bar=False, logger=True)
         return total_loss
 
