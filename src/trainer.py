@@ -21,6 +21,7 @@ class PPOModuleConfig:
     clip_epsilon: float = 0.2
     value_coeff: float = 0.5
     entropy_coeff: float = 0.01
+    grad_clip: float = 1.0
 
 
 class PPOModule(pl.LightningModule):
@@ -51,6 +52,8 @@ class PPOModule(pl.LightningModule):
         self.current_update_epoch = 0  # counts epochs since last rollout collection
         self.rollout_dataset = None
 
+        self.automatic_optimization = False
+
     def forward(self, x):
         return self.actor_critic(x)
 
@@ -64,7 +67,6 @@ class PPOModule(pl.LightningModule):
         """Collects a rollout using the current policy."""
         obs, info = self.env.reset()
         self.actor_critic = self.actor_critic.to(self.device)
-        self.total_rewards = 0
 
         for _ in range(self.config.rollout_length):
             # Convert state to tensor and add batch dimension.
@@ -77,7 +79,6 @@ class PPOModule(pl.LightningModule):
 
             # Step in the environment
             next_obs, reward, terminated, truncated, info = self.env.step(action.item())
-            self.total_rewards += reward
 
             with torch.no_grad():
                 # compute the next value
@@ -108,17 +109,28 @@ class PPOModule(pl.LightningModule):
                 obs, info = self.env.reset()
 
     def train_dataloader(self):
+        x = torch.randn(1, 1)
+        return DataLoader(x, batch_size=1)
+
+    def get_new_rollout(self, clear_buffer=True):
         """
         Each call to train_dataloader is used to supply data for one Lightning epoch.
         We choose to collect new rollout data only every `update_epochs` epochs.
         """
-        if self.current_update_epoch == 0:
+        if clear_buffer:
             # Before collecting new rollouts, clear previous data.
             self.buffer.clear()
-            self.collect_rollout()
-            # Assume self.buffer.get_dataset() returns a torch Dataset yielding:
-            # (observations, actions, old_log_probs, returns, advantages)
-            self.rollout_dataset = self.buffer.get_dataset()
+        self.collect_rollout()
+        # Assume self.buffer.get_dataset() returns a torch Dataset yielding:
+        # (observations, actions, old_log_probs, returns, advantages)
+        self.rollout_dataset = self.buffer.get_dataset()
+        # self.total_reward = self.rollout_dataset.rewards.sum()
+        self.log_dict(
+            {"train/total_reward": self.rollout_dataset.rewards.sum()},
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+        )
 
         # Increment epoch counter and reset when reaching update_epochs.
         self.current_update_epoch += 1
@@ -160,21 +172,55 @@ class PPOModule(pl.LightningModule):
             - self.config.entropy_coeff * entropy_bonus
         )
 
-        self.log("train/value_loss", value_loss, prog_bar=False, logger=True)
-        self.log("train/policy_loss", policy_loss, prog_bar=False, logger=True)
-        self.log("train/loss", total_loss, prog_bar=False, logger=True)
+        # self.log("train/value_loss", value_loss, prog_bar=False, logger=True)
+        # self.log("train/policy_loss", policy_loss, prog_bar=False, logger=True)
+        # self.log("train/loss", total_loss, prog_bar=False, logger=True)
+        self.log_dict(
+            {
+                "train/value_loss": value_loss,
+                "train/policy_loss": policy_loss,
+                "train/loss": total_loss,
+            },
+            on_step=True,
+            on_epoch=True,
+            prog_bar=False,
+        )
+
         return total_loss
 
-    def training_step(self, batch, batch_idx):
-        loss = self.compute_loss(batch)
-        return loss
+    def collocate_data(self, batch):
+        return {k: v.to(self.device) for k, v in batch.items()}
 
-    def on_train_epoch_start(self):
-        """Log the total reward of the rollout at the start of the first training epoch using it."""
-        if self.current_update_epoch == 1:
-            self.log(
-                "train/total_reward", self.total_rewards, prog_bar=True, logger=True
-            )
+    def training_step(self, batch, batch_idx):
+        # Get the optimizer (if you have one)
+        optimizer = self.optimizers()
+
+        # Get a new data loader (e.g., for RL environment or custom sampling)
+        data_loader = self.get_new_rollout()
+        # Iterate over the data loader (or just use a single batch)
+        for _ in range(self.config.update_epochs):
+            for batch in data_loader:
+                batch = self.collocate_data(batch)
+
+                # Forward pass
+                loss = self.compute_loss(batch)
+
+                # Manual optimization steps
+                optimizer.zero_grad()  # Clear gradients
+                self.manual_backward(loss)  # Backward pass
+
+                # Gradient clipping
+                torch.nn.utils.clip_grad_norm_(
+                    self.parameters(), max_norm=self.config.grad_clip
+                )  # Clip gradients
+
+                optimizer.step()  # Update weights
+
+                # Logging(optional)
+                self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+
+        # Return None or a dictionary (optional)
+        return None
 
     def configure_optimizers(self):
         return optim.Adam(self.actor_critic.parameters(), lr=self.config.lr)

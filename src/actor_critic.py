@@ -30,6 +30,10 @@ class Mlp(nn.Module):
 
         if activation == "silu":
             self.act_fn = nn.SiLU()
+        elif activation == "relu":
+            self.act_fn = nn.ReLU()
+        elif activation == "tanh":
+            self.act_fn = nn.Tanh()
         else:
             raise ValueError("only silu is supported")
 
