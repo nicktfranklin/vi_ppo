@@ -13,25 +13,22 @@ from src.buffer import RolloutBuffer
 
 
 @dataclass
-class PPOModuleConfig:
+class RlModuleConfig:
     rollout_length: int = 2048
     update_epochs: int = 10
     lr: float = 1e-3
     gamma: float = 0.95
-    clip_epsilon: float = 0.2
-    value_coeff: float = 0.5
-    entropy_coeff: float = 0.01
     grad_clip: float = 1.0
 
 
-class PPOModule(pl.LightningModule):
-    config_class = PPOModuleConfig
+class RlModule(pl.LightningModule):
+    config_class = RlModuleConfig
 
     def __init__(
         self,
         actor_critic: ActorCritic,
         env,
-        config: PPOModuleConfig,
+        config: RlModuleConfig,
     ):
         """
         Args:
@@ -203,7 +200,7 @@ class PPOModule(pl.LightningModule):
                 batch = self.collocate_data(batch)
 
                 # Forward pass
-                loss = self.compute_loss(batch)
+                loss = self.actor_critic.loss(batch)
 
                 # Manual optimization steps
                 optimizer.zero_grad()  # Clear gradients
