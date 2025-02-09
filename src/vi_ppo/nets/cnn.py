@@ -22,21 +22,24 @@ class ConvBlock(nn.Module):
 
 @dataclass
 class CnnConfig:
-    input_dims: int
-    output_dims: int
-    hidden_dims: list[int] = field(default_factory=lambda: [32, 64, 64])
+    input_channels: int
+    channels: list[int] = field(default_factory=lambda: [32, 64, 64])
     kernel_sizes: list[int] = field(default_factory=lambda: [8, 4, 3])
     strides: list[int] = field(default_factory=lambda: [4, 2, 1])
     activation: str = "elu"
+    flatten_output: bool = False
+    float_input: bool = False
 
 
 class Cnn(nn.Module):
+    config_cls = CnnConfig
+
     def __init__(self, config: CnnConfig):
         super().__init__()
         self.config = config
 
         modules = []
-        h_in = config.in_channels
+        h_in = config.input_channels
         for h_dim, kernel_size, stride in zip(
             config.channels, config.kernel_sizes, config.strides
         ):
@@ -50,16 +53,22 @@ class Cnn(nn.Module):
             # Create a dummy input tensor
             dummy_input = torch.zeros(1, *input_shape)
             # Pass the dummy input through the CNN layers
-            output = self.cnn(dummy_input)
+            output = self(dummy_input)
         return output.shape
 
     def forward(self, x):
+        if self.config.float_input is False:
+            x = x.float()
+
         # Assume NxCxHxW input or CxHxW input
         assert x.ndim == 4 or x.ndim == 3
-        assert_correct_end_shape(x, self.input_shape)
-        x = maybe_expand_batch(x, self.input_shape)
+        if x.ndim == 3:
+            x = x.unsqueeze(0)
+        # assert_correct_end_shape(x, self.input_shape)
+        # x = maybe_expand_batch(x, self.input_shape)
         x = self.cnn(x)
-        x = self.mlp(torch.flatten(x, start_dim=1))
+        if self.config.flatten_output:
+            x = x.view(x.size(0), -1)
         return x
 
 
