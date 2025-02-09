@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 import torch
@@ -24,9 +24,9 @@ class ConvBlock(nn.Module):
 class CnnConfig:
     input_dims: int
     output_dims: int
-    hidden_dims: list[int] = [32, 64, 64]
-    kernel_sizes: list[int] = [8, 4, 3]
-    strides: list[int] = [4, 2, 1]
+    hidden_dims: list[int] = field(default_factory=lambda: [32, 64, 64])
+    kernel_sizes: list[int] = field(default_factory=lambda: [8, 4, 3])
+    strides: list[int] = field(default_factory=lambda: [4, 2, 1])
     activation: str = "elu"
 
 
@@ -89,7 +89,7 @@ class ConvTransposeBlock(nn.Module):
 class TransposedCnnConfig:
     embedding_dim: int = 1024
     output_channels: int = 1
-    channels: list[int] = [32, 64, 128, 256, 512][::-1]
+    channels: list[int] = field(default_factory=lambda: [32, 64, 128, 256, 512][::-1])
 
 
 class TransposedCnn(nn.Module):
