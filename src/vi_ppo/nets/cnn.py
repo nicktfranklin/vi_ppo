@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from nets.utils import assert_correct_end_shape, maybe_expand_batch
+from vi_ppo.nets.utils import assert_correct_end_shape, maybe_expand_batch
 
 
 class ConvBlock(nn.Module):

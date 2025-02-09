@@ -8,8 +8,8 @@ import torch.optim as optim
 from torch.distributions import Categorical
 from torch.utils.data import DataLoader
 
-from src.actor_critic import ActorCritic
-from src.buffer import RolloutBuffer
+from vi_ppo.actor_critic import ActorCritic
+from vi_ppo.buffer import RolloutBuffer
 
 
 @dataclass

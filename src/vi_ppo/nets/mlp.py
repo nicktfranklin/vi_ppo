@@ -2,7 +2,8 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
-from utils import get_activation
+
+from vi_ppo.nets.utils import get_activation
 
 
 @dataclass
