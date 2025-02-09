@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
+from utils import get_activation
 
 
 @dataclass
@@ -35,15 +36,7 @@ class Mlp(nn.Module):
                 for _ in range(config.n_layers)
             ]
         )
-
-        if config.activation == "silu":
-            self.act_fn = nn.SiLU()
-        elif config.activation == "relu":
-            self.act_fn = nn.ReLU()
-        elif config.activation == "tanh":
-            self.act_fn = nn.Tanh()
-        else:
-            raise ValueError("only silu is supported")
+        self.act_fn = get_activation(config.activation)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.input_projection(x)

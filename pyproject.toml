@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "state_inference"
+name = "vi_ppo"
 version = "0.1.0"
 description = "State inference project"
 requires-python = ">=3.10.13"
 dependencies = [
     "swig",
-    "gymnasium[box2d]",  # Now installs gymnasium with the "box2d" extra
+    "gymnasium[box2d]",
     "torch",
     "torchvision",
     "tqdm",
@@ -21,7 +21,7 @@ dependencies = [
     "tensorboard>=1.15",
     "memory_profiler",
     "lightning",
-    "thread-the-needle @ git+https://github.com/nicktfranklin/thread_the_needle.git",  # Fixed URL syntax
+    "thread-the-needle @ git+https://github.com/nicktfranklin/thread_the_needle.git",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +36,7 @@ dev = [
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["src/vi_ppo"]
 
 [tool.pytest.ini_options]
 addopts = "-ra -q"

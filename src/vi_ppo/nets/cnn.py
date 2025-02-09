@@ -21,28 +21,18 @@ class ConvBlock(nn.Module):
 
 
 @dataclass
-class CnnModelConfig:
+class CnnBlockConfig:
     input_dims: int
     output_dims: int
-    hidden_dims: int
-    n_layers: int
-    activation: str = "silu"
+    hidden_dims: list[int] = [32, 64, 64]
+    kernel_sizes: list[int] = [8, 4, 3]
+    strides: list[int] = [4, 2, 1]
+    activation: str = "elu"
 
 
-class CnnModel(nn.Module):
-    def __init__(
-        self,
-        in_channels: int,
-        embedding_dim: int,
-        input_shape: Tuple[int, int, int],
-        channels: Optional[List[int]] = None,
-        kernel_sizes: Optional[List[int]] = None,
-        strides: Optional[List[int]] = None,
-    ):
+class CnnBlock(nn.Module):
+    def __init__(self, config: CnnBlockConfig):
         super().__init__()
-
-        if channels is None:
-            channels = [32, 64, 64]
 
         if kernel_sizes is None:
             kernel_sizes = [8, 4, 3]
@@ -58,19 +48,13 @@ class CnnModel(nn.Module):
         self.cnn = nn.Sequential(*modules)
         self.embedding_dim = embedding_dim
 
+    def calculate_output_shape(self, input_shape):
         with torch.no_grad():
             # Create a dummy input tensor
             dummy_input = torch.zeros(1, *input_shape)
             # Pass the dummy input through the CNN layers
             output = self.cnn(dummy_input)
-            # Calculate the output shape
-            output_shape = output.shape[1] * output.shape[2] * output.shape[3]
-
-        self.mlp = nn.Sequential(
-            nn.Linear(output_shape, embedding_dim),
-            nn.ELU(),
-        )
-        self.input_shape = input_shape
+        return output_shape.shape
 
     def forward(self, x):
         # Assume NxCxHxW input or CxHxW input
