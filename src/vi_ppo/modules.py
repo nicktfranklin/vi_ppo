@@ -186,9 +186,9 @@ class GymnasiumModule(pl.LightningModule):
         return {k: v.to(self.device) for k, v in batch.items()}
 
     def preprocess_batch(self, batch):
-        batch["obs"] = self.preprocess_obs(batch["obs"])
-        batch["next_obs"] = self.preprocess_obs(batch["next_obs"])
-        batch = self.collect_rollout(batch)
+        batch["observations"] = self.preprocess_obs(batch["observations"])
+        batch["next_observations"] = self.preprocess_obs(batch["next_observations"])
+        return self.collocate_data(batch)
 
     def training_step(self, batch, batch_idx):
         # Get the optimizer (if you have one)
@@ -199,7 +199,7 @@ class GymnasiumModule(pl.LightningModule):
         # Iterate over the data loader (or just use a single batch)
         for _ in range(self.config.update_epochs):
             for batch in data_loader:
-                batch = self.collocate_data(batch)
+                batch = self.preprocess_batch(batch)
 
                 # Forward pass
                 loss = self.actor_critic.loss(batch)
