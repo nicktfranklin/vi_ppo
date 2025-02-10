@@ -1,4 +1,5 @@
 import argparse
+from pathlib import Path
 
 import lightning as pl
 import thread_the_needle as ttn
@@ -81,16 +82,16 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PPO Thread the Needle")
     parser.add_argument(
-        "--n_simulations", type=int, default=16, help="Number of simulations"
+        "--n_simulations", type=int, default=25, help="Number of simulations"
     )
     parser.add_argument(
-        "--hidden_dims", type=int, default=16, help="Hidden dimensions for MLP"
+        "--hidden_dims", type=int, default=32, help="Hidden dimensions for MLP"
     )
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument(
         "--log_dir",
         type=str,
-        default="../lightning_logs",
+        default=str(Path(__file__).resolve().parent.parent / "lightning_logs"),
         help="Directory for TensorBoard logs",
     )
     parser.add_argument(
