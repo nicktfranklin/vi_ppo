@@ -5,14 +5,22 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from vi_ppo.nets.utils import assert_correct_end_shape, maybe_expand_batch
+from vi_ppo.nets.utils import get_activation
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=1):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        padding=1,
+        activation="elu",
+    ):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
-        self.act = nn.ELU()
+        self.act = get_activation(activation)
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.conv(x)
@@ -26,6 +34,7 @@ class CnnConfig:
     channels: list[int] = field(default_factory=lambda: [32, 64, 64])
     kernel_sizes: list[int] = field(default_factory=lambda: [8, 4, 3])
     strides: list[int] = field(default_factory=lambda: [4, 2, 1])
+    padding: list[int] = field(default_factory=lambda: [1, 1, 1])
     activation: str = "elu"
     flatten_output: bool = False
 
@@ -39,10 +48,19 @@ class Cnn(nn.Module):
 
         modules = []
         h_in = config.input_channels
-        for h_dim, kernel_size, stride in zip(
-            config.channels, config.kernel_sizes, config.strides
+        for h_dim, kernel_size, stride, padding in zip(
+            config.channels, config.kernel_sizes, config.strides, config.padding
         ):
-            modules.append(ConvBlock(h_in, h_dim, kernel_size, stride, padding=1))
+            modules.append(
+                ConvBlock(
+                    h_in,
+                    h_dim,
+                    kernel_size,
+                    stride,
+                    padding=padding,
+                    activation=config.activation,
+                )
+            )
             h_in = h_dim
 
         self.cnn = nn.Sequential(*modules)
