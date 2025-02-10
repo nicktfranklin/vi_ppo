@@ -28,7 +28,6 @@ class CnnConfig:
     strides: list[int] = field(default_factory=lambda: [4, 2, 1])
     activation: str = "elu"
     flatten_output: bool = False
-    float_input: bool = False
 
 
 class Cnn(nn.Module):
@@ -57,8 +56,6 @@ class Cnn(nn.Module):
         return output.shape
 
     def forward(self, x):
-        if self.config.float_input is False:
-            x = x.float()
 
         # Assume NxCxHxW input or CxHxW input
         assert x.ndim == 4 or x.ndim == 3
