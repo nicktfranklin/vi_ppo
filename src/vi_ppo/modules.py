@@ -54,9 +54,12 @@ class GymnasiumModule(pl.LightningModule):
     def forward(self, x):
         return self.actor_critic(x)
 
+    def preprocess_obs(self, obs: np.ndarray) -> torch.Tensor:
+        return torch.tensor(obs, dtype=torch.float32).to(self.device)
+
     def predict(self, x: np.ndarray):
         """Predict the action to take given the current state."""
-        x = torch.tensor(x, dtype=torch.float32).unsqueeze(0).to(self.device)
+        x = self.preprocess_obs(x).unsqueeze(0)
         action, _, _ = self.actor_critic.sample_action(x)
         return action.item()
 
@@ -67,9 +70,7 @@ class GymnasiumModule(pl.LightningModule):
 
         for _ in range(self.config.rollout_length):
             # Convert state to tensor and add batch dimension.
-            obs_tensor = (
-                torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device)
-            )
+            obs_tensor = self.preprocess_obs(obs).unsqueeze(0)
 
             with torch.no_grad():
                 action, log_prob, values = self.actor_critic.sample_action(obs_tensor)
@@ -79,11 +80,7 @@ class GymnasiumModule(pl.LightningModule):
 
             with torch.no_grad():
                 # compute the next value
-                next_obs_tensor = (
-                    torch.tensor(next_obs, dtype=torch.float32)
-                    .unsqueeze(0)
-                    .to(self.device)
-                )
+                next_obs_tensor = self.preprocess_obs(next_obs).unsqueeze(0)
                 _, next_value = self.actor_critic(next_obs_tensor)
 
             # Store the transition (assuming your buffer.add signature matches these arguments)
@@ -121,7 +118,7 @@ class GymnasiumModule(pl.LightningModule):
         # Assume self.buffer.get_dataset() returns a torch Dataset yielding:
         # (observations, actions, old_log_probs, returns, advantages)
         self.rollout_dataset = self.buffer.get_dataset()
-        # self.total_reward = self.rollout_dataset.rewards.sum()
+
         self.log_dict(
             {"train/total_reward": self.rollout_dataset.rewards.sum()},
             on_step=False,
@@ -188,6 +185,11 @@ class GymnasiumModule(pl.LightningModule):
     def collocate_data(self, batch):
         return {k: v.to(self.device) for k, v in batch.items()}
 
+    def preprocess_batch(self, batch):
+        batch["obs"] = self.preprocess_obs(batch["obs"])
+        batch["next_obs"] = self.preprocess_obs(batch["next_obs"])
+        batch = self.collect_rollout(batch)
+
     def training_step(self, batch, batch_idx):
         # Get the optimizer (if you have one)
         optimizer = self.optimizers()
@@ -221,3 +223,11 @@ class GymnasiumModule(pl.LightningModule):
 
     def configure_optimizers(self):
         return optim.Adam(self.actor_critic.parameters(), lr=self.config.lr)
+
+
+class ThreadTheNeedleModule(GymnasiumModule):
+
+    def preprocess_obs(self, obs):
+        # Preprocess the observation
+        # and Normalize 0-255 to 0-1
+        return super().preprocess_obs(obs) / 255.0
