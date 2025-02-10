@@ -13,7 +13,7 @@ from vi_ppo.buffer import RolloutBuffer
 
 
 @dataclass
-class RlModuleConfig:
+class GymnasiumModuleConfig:
     rollout_length: int = 2048
     update_epochs: int = 10
     lr: float = 1e-3
@@ -21,14 +21,14 @@ class RlModuleConfig:
     grad_clip: float = 1.0
 
 
-class RlModule(pl.LightningModule):
-    config_class = RlModuleConfig
+class GymnasiumModule(pl.LightningModule):
+    config_class = GymnasiumModuleConfig
 
     def __init__(
         self,
         actor_critic: ActorCritic,
         env,
-        config: RlModuleConfig,
+        config: GymnasiumModuleConfig,
     ):
         """
         Args:
