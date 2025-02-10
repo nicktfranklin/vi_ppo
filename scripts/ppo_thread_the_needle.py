@@ -1,4 +1,5 @@
-import gym
+import argparse
+
 import lightning as pl
 import thread_the_needle as ttn
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -8,12 +9,8 @@ from vi_ppo.modules import ThreadTheNeedleModule
 from vi_ppo.nets.cnn import Cnn
 from vi_ppo.nets.mlp import Mlp
 
-N_SIMULATIONS = 16
 
-
-def make_agent():
-    hidden_dims = 16
-
+def make_agent(n_a, hidden_dims):
     feature_extractor_config = Cnn.config_cls(
         input_channels=1,
         channels=[8, 16, 1],
@@ -58,8 +55,7 @@ def make_agent():
     return model
 
 
-def main():
-
+def main(args):
     # Create the environment
     env = ttn.make("thread_the_needle")
 
@@ -70,17 +66,36 @@ def main():
     print("Observation space: ", d)
     print("Action space: ", n_a)
 
-    for _ in range(N_SIMULATIONS):
-        model = make_agent()
+    for _ in range(args.n_simulations):
+        model = make_agent(n_a, args.hidden_dims)
 
-        config = ThreadTheNeedleModule.config_class(lr=3e-4)
+        config = ThreadTheNeedleModule.config_class(lr=args.lr)
         module = ThreadTheNeedleModule(actor_critic=model, env=env, config=config)
 
-        logger = TensorBoardLogger("../lightning_logs", name="thread_the_needle")
-        trainer = pl.Trainer(max_epochs=100, logger=logger)
+        logger = TensorBoardLogger(args.log_dir, name="thread_the_needle")
+        trainer = pl.Trainer(max_epochs=args.max_epochs, logger=logger)
 
         trainer.fit(module)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="PPO Thread the Needle")
+    parser.add_argument(
+        "--n_simulations", type=int, default=16, help="Number of simulations"
+    )
+    parser.add_argument(
+        "--hidden_dims", type=int, default=16, help="Hidden dimensions for MLP"
+    )
+    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
+    parser.add_argument(
+        "--log_dir",
+        type=str,
+        default="../lightning_logs",
+        help="Directory for TensorBoard logs",
+    )
+    parser.add_argument(
+        "--max_epochs", type=int, default=100, help="Maximum number of epochs"
+    )
+
+    args = parser.parse_args()
+    main(args)
