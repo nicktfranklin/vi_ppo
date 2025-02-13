@@ -101,6 +101,10 @@ class GymnasiumModule(pl.LightningModule):
 
             if terminated or truncated:
                 obs, info = self.env.reset()
+        return self.on_rollout_end()
+
+    def on_rollout_end(self, *args, **kwargs) -> None:
+        pass
 
     def train_dataloader(self):
         x = torch.randn(1, 1)
@@ -114,17 +118,25 @@ class GymnasiumModule(pl.LightningModule):
         if clear_buffer:
             # Before collecting new rollouts, clear previous data.
             self.buffer.clear()
-        self.collect_rollout()
+        metrics = self.collect_rollout()
+
         # Assume self.buffer.get_dataset() returns a torch Dataset yielding:
         # (observations, actions, old_log_probs, returns, advantages)
         self.rollout_dataset = self.buffer.get_dataset()
 
-        self.log_dict(
-            {"train/total_reward": self.rollout_dataset.rewards.sum()},
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
+        metrics.update(
+            {
+                "train/total_reward": self.rollout_dataset.rewards.sum(),
+            }
         )
+        self.log_dict(metrics, on_step=False, on_epoch=True, prog_bar=True)
+
+        # self.log_dict(
+        #     {"train/total_reward": self.rollout_dataset.rewards.sum()},
+        #     on_step=False,
+        #     on_epoch=True,
+        #     prog_bar=True,
+        # )
 
         # Increment epoch counter and reset when reaching update_epochs.
         self.current_update_epoch += 1
@@ -132,55 +144,6 @@ class GymnasiumModule(pl.LightningModule):
             self.current_update_epoch = 0
 
         return DataLoader(self.rollout_dataset, batch_size=64, shuffle=True)
-
-    def compute_loss(self, batch: dict):
-        """
-        Unpacks the batch and computes the PPO loss.
-        Expects the batch to provide:
-          obs, actions, old_log_probs, returns, advantages.
-        """
-        # Forward pass through actor-critic.
-        action_logits, values = self.actor_critic(batch["observations"])
-        dist = Categorical(logits=action_logits)
-        log_probs = dist.log_prob(batch["actions"])
-        entropy_bonus = dist.entropy().mean()  # Entropy bonus.
-
-        # Policy loss.
-        advantages = batch["advantages"]
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
-        # Compute probability ratio.
-        ratio = torch.exp(log_probs - batch["log_probs"])
-        policy_loss_1 = advantages * ratio
-        policy_loss_2 = advantages * torch.clamp(
-            ratio, 1 - self.config.clip_epsilon, 1 + self.config.clip_epsilon
-        )
-        policy_loss = -torch.min(policy_loss_1, policy_loss_2 * advantages).mean()
-
-        # Value loss.
-        value_loss = F.mse_loss(values.squeeze(), batch["returns"])
-
-        total_loss = (
-            policy_loss
-            + self.config.value_coeff * value_loss
-            - self.config.entropy_coeff * entropy_bonus
-        )
-
-        # self.log("train/value_loss", value_loss, prog_bar=False, logger=True)
-        # self.log("train/policy_loss", policy_loss, prog_bar=False, logger=True)
-        # self.log("train/loss", total_loss, prog_bar=False, logger=True)
-        self.log_dict(
-            {
-                "train/value_loss": value_loss,
-                "train/policy_loss": policy_loss,
-                "train/loss": total_loss,
-            },
-            on_step=True,
-            on_epoch=True,
-            prog_bar=False,
-        )
-
-        return total_loss
 
     def collocate_data(self, batch):
         return {k: v.to(self.device) for k, v in batch.items()}
@@ -202,7 +165,7 @@ class GymnasiumModule(pl.LightningModule):
                 batch = self.preprocess_batch(batch)
 
                 # Forward pass
-                loss = self.actor_critic.loss(batch)
+                loss, metrics = self.actor_critic.loss(batch, return_metrics=True)
 
                 # Manual optimization steps
                 optimizer.zero_grad()  # Clear gradients
@@ -216,7 +179,7 @@ class GymnasiumModule(pl.LightningModule):
                 optimizer.step()  # Update weights
 
                 # Logging(optional)
-                self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+                self.log_dict(metrics, on_step=True, on_epoch=True, prog_bar=False)
 
         # Return None or a dictionary (optional)
         return None
@@ -231,3 +194,13 @@ class ThreadTheNeedleModule(GymnasiumModule):
         # Preprocess the observation
         # and Normalize 0-255 to 0-1
         return super().preprocess_obs(obs) / 255.0
+
+    def on_rollout_end(self, *args, **kwargs):
+        estimated, true_values = [None] * len(self.buffer), [None] * len(self.buffer)
+        for ii in range(len(self.buffer)):
+            estimated[ii] = self.buffer.values[ii]
+            true_values[ii] = self.buffer.infos[ii]["state_values"]
+
+        r2 = np.corrcoef(estimated, true_values)[0, 1] ** 2
+        r2 = torch.tensor(r2).float().to(device=self.device)
+        return {"train/r2_value_model": r2}

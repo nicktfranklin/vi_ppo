@@ -96,6 +96,9 @@ class RolloutBuffer:
 
         self.adv = []
 
+    def __len__(self):
+        return len(self.observations)
+
     def clear(self):
         self.observations.clear()
         self.actions.clear()

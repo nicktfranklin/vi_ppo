@@ -45,7 +45,9 @@ class ActorCritic(nn.Module):
         log_prob = log_probs.gather(dim=-1, index=a).squeeze(-1)
         return a, log_prob, values
 
-    def loss(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+    def loss(
+        self, batch: dict[str, torch.Tensor], return_metrics: bool = False
+    ) -> torch.Tensor:
         """
         Compute the PPO loss.
 
@@ -88,4 +90,11 @@ class ActorCritic(nn.Module):
             + self.config.value_coeff * value_loss
             - self.config.entropy_coeff * entropy
         )
+        if return_metrics:
+            metrics = {
+                "train/value_loss": value_loss,
+                "train/policy_loss": policy_loss,
+                "train/loss": total_loss,
+            }
+            return total_loss, metrics
         return total_loss
