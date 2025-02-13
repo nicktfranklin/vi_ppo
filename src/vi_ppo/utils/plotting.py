@@ -24,7 +24,9 @@ def visualize_rollout(env, buffer: RolloutBuffer, max_steps: int | None = None):
 
     trajectories = [[]]
     for ii in range(len(states)):
-        if buffer.terminated[ii]:
+        if buffer.terminated[ii] or buffer.truncated[ii]:
+            trajectories.append([])
+        elif ii > 0 and states[ii] != next_states[ii - 1]:
             trajectories.append([])
         x, y = env.observation_model.get_grid_coords(states[ii])
         x += np.random.randn() * 0.1
@@ -33,7 +35,6 @@ def visualize_rollout(env, buffer: RolloutBuffer, max_steps: int | None = None):
 
     plt.figure(figsize=(8, 8))
     for trajectory in trajectories:
-        print(trajectory[0])
         if len(trajectory) > 0:
             x, y = zip(*trajectory)
             plt.plot(y, x, marker="o")
