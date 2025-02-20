@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Tuple, Union
 
-import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -22,88 +21,8 @@ class VQVAEArgs:
     levels: int = None
 
 
-class Encoder(nn.Module):
-    def __init__(self, args: VQVAEArgs):
-        """
-        Initializes the Encoder module.
-
-        Args:
-            args: A namespace containing the arguments for the encoder.
-        """
-        super().__init__()
-        in_channel = args.in_channel
-        channel = args.channel
-        embed_dim = args.embed_dim
-
-        blocks = [
-            nn.Conv2d(in_channel, channel, 4, stride=2, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(channel, channel, 4, stride=2, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(channel, channel, 4, stride=2, padding=1),
-        ]
-
-        blocks.append(nn.ReLU(inplace=True))
-        blocks.append(nn.Conv2d(channel, embed_dim, 1))
-        self.blocks = nn.Sequential(*blocks)
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through the encoder.
-
-        Args:
-            input (torch.Tensor): Input tensor.
-
-        Returns:
-            torch.Tensor: Encoded tensor.
-        """
-        return self.blocks(input)
-
-
-class Decoder(nn.Module):
-    def __init__(self, args: VQVAEArgs):
-        """
-        Initializes the Decoder module.
-
-        Args:
-            args: A namespace containing the arguments for the decoder.
-        """
-        super().__init__()
-
-        in_channel = args.embed_dim
-        out_channel = args.in_channel
-        channel = args.channel
-
-        blocks = [
-            nn.ConvTranspose2d(in_channel, channel, 4, stride=2, padding=1),
-        ]
-        blocks.append(nn.ReLU(inplace=True))
-        blocks.extend(
-            [
-                nn.ConvTranspose2d(channel, channel, 4, stride=2, padding=1),
-                nn.ReLU(inplace=True),
-                nn.ConvTranspose2d(channel, channel, 4, stride=2, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(channel, out_channel, 1),
-            ]
-        )
-        self.blocks = nn.Sequential(*blocks)
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through the decoder.
-
-        Args:
-            input (torch.Tensor): Input tensor.
-
-        Returns:
-            torch.Tensor: Decoded tensor.
-        """
-        return self.blocks(input)
-
-
 class VQVAE(nn.Module):
-    def __init__(self, args: VQVAEArgs):
+    def __init__(self, encoder: nn.Module, decoder: nn.Module, args: VQVAEArgs):
         """
         Initializes the VQVAE module.
 
@@ -128,8 +47,8 @@ class VQVAE(nn.Module):
             print("quantizer error!")
             exit()
 
-        self.enc = Encoder(args)
-        self.dec = Decoder(args)
+        self.enc = encoder
+        self.dec = decoder
 
     def forward(self, input: torch.Tensor, return_id: bool = True) -> Union[
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
