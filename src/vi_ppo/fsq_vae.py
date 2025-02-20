@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Tuple, Union
 
 import torch
@@ -10,15 +10,13 @@ from vi_ppo.nets.quantizers import FSQ, LFQ, VectorQuantizeEMA
 
 @dataclass
 class VQVAEArgs:
-    in_channel: int
-    channel: int
-    embed_dim: int
-    quantizer: str
-    n_embed: int = None
+    embed_dim: int = 256
+    quantizer: str = "fsq"
+    n_embed: int = 1024
     lfq_dim: int = None
     entropy_loss_weight: float = None
     codebook_loss_weight: float = None
-    levels: int = None
+    levels: list = field(default_factory=lambda: [8, 5, 5, 5])
 
 
 class VQVAE(nn.Module):
