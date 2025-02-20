@@ -201,9 +201,6 @@ class VectorQuantizeEMA(nn.Module):
         return F.embedding(embed_id, self.embed.weight)
 
 
-if __name__ == "__main__":
-    pass
-
 # constants
 
 Return = namedtuple("Return", ["quantized", "indices", "entropy_aux_loss"])
