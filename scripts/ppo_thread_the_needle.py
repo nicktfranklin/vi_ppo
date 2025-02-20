@@ -3,6 +3,7 @@ from pathlib import Path
 
 import lightning as pl
 import thread_the_needle as ttn
+from lightning.pytorch.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from vi_ppo.actor_critic import ActorCritic
@@ -73,8 +74,19 @@ def main(args):
         config = ThreadTheNeedleModule.config_class(lr=args.lr)
         module = ThreadTheNeedleModule(actor_critic=model, env=env, config=config)
 
-        logger = TensorBoardLogger(args.log_dir, name="thread_the_needle")
-        trainer = pl.Trainer(max_epochs=args.max_epochs, logger=logger)
+        logger = TensorBoardLogger(args.log_dir, name="thread_the_needle/lr_3e-4")
+        checkpoint_callback = ModelCheckpoint(
+            dirpath=f"{args.checkpoint_dir}/thread_the_needle/lr_3e-4",
+            filename="thread_the_needle",
+            save_top_k=1,
+            monitor="train/total_reward",
+            mode="max",
+        )
+        trainer = pl.Trainer(
+            callbacks=[checkpoint_callback],
+            max_epochs=args.max_epochs,
+            logger=logger,
+        )
 
         trainer.fit(module)
 
@@ -82,12 +94,23 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PPO Thread the Needle")
     parser.add_argument(
-        "--n_simulations", type=int, default=25, help="Number of simulations"
+        "--n_simulations",
+        type=int,
+        default=25,
+        help="Number of simulations",
     )
     parser.add_argument(
-        "--hidden_dims", type=int, default=32, help="Hidden dimensions for MLP"
+        "--hidden_dims",
+        type=int,
+        default=32,
+        help="Hidden dimensions for MLP",
     )
-    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=3e-4,
+        help="Learning rate",
+    )
     parser.add_argument(
         "--log_dir",
         type=str,
@@ -95,7 +118,16 @@ if __name__ == "__main__":
         help="Directory for TensorBoard logs",
     )
     parser.add_argument(
-        "--max_epochs", type=int, default=100, help="Maximum number of epochs"
+        "--max_epochs",
+        type=int,
+        default=50,
+        help="Maximum number of epochs",
+    )
+    parser.add_argument(
+        "--checkpoint_dir",
+        type=str,
+        default=str(Path(__file__).resolve().parent.parent / "checkpoints"),
+        help="Directory for model checkpoints",
     )
 
     args = parser.parse_args()

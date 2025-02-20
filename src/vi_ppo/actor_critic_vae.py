@@ -12,6 +12,8 @@ class ActorCriticConfig:
     entropy_coeff: float = 0.01
     normalize_advantages: bool = True
 
+    vae_loss_coeff: float = 1.0
+
 
 class ActorCritic(nn.Module):
     config_cls = ActorCriticConfig
@@ -22,6 +24,7 @@ class ActorCritic(nn.Module):
         actor_net: nn.Module,
         critic: nn.Module,
         feature_extractor: nn.Module | None = None,
+        state_vae: nn.Module | None = None,
     ):
         super().__init__()
         self.config = config
@@ -30,6 +33,7 @@ class ActorCritic(nn.Module):
         self.feature_extractor = (
             feature_extractor if feature_extractor else nn.Identity()
         )
+        self.state_vae = state_vae  # allow for None
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.feature_extractor(x)
@@ -44,6 +48,35 @@ class ActorCritic(nn.Module):
         a = torch.multinomial(log_probs.exp(), num_samples=1)
         log_prob = log_probs.gather(dim=-1, index=a).squeeze(-1)
         return a, log_prob, values
+
+    def get_state(self, x: torch.Tensor) -> torch.Tensor:
+        features = self.feature_extractor(x)
+        if self.state_vae is None:
+            return features
+        return self.state_vae.encode(features)
+
+    def vae_loss(self, features: torch.Tensor) -> torch.Tensor:
+        """Note: the VAE operaterates on the features, not raw input.  The logic of this
+        is to allow for a simpler VAE architecture.
+
+        If we want the vae to operate on the raw input, this can be done by not using a feature extractor.
+        """
+
+        if self.state_vae is None:
+            return torch.tensor(0.0), {}
+
+        x_hat, _, logits = self.state_vae(features)
+        reconstruction_loss = (
+            F.mse_loss(x_hat, features, reduction="none").sum(1).mean()
+        )
+        kl_divergence = self.state_vae.kl_divergence(logits)
+
+        metrics = {
+            "train/vae/reconstruction_loss": reconstruction_loss,
+            "train/vae/kl_divergence": kl_divergence,
+        }
+
+        return reconstruction_loss + kl_divergence, metrics
 
     def loss(
         self, batch: dict[str, torch.Tensor], return_metrics: bool = False
@@ -86,11 +119,15 @@ class ActorCritic(nn.Module):
         # Entropy bonus (to encourage exploration)
         entropy = dist.entropy().mean()
 
+        # VAE loss
+        vae_loss, vae_metrics = self.vae_loss(features)
+
         # Total loss
         total_loss = (
             policy_loss
             + self.config.value_coeff * value_loss
             - self.config.entropy_coeff * entropy
+            + self.config.vae_loss_coeff * vae_loss
         )
         if return_metrics:
             metrics = {
@@ -98,5 +135,8 @@ class ActorCritic(nn.Module):
                 "train/policy_loss": policy_loss,
                 "train/loss": total_loss,
             }
+            if (self.state_vae is not None) and (self.config.vae_loss_coeff > 0):
+                metrics.update(vae_metrics)
+
             return total_loss, metrics
         return total_loss

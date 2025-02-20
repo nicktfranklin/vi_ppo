@@ -131,13 +131,6 @@ class GymnasiumModule(pl.LightningModule):
         )
         self.log_dict(metrics, on_step=False, on_epoch=True, prog_bar=True)
 
-        # self.log_dict(
-        #     {"train/total_reward": self.rollout_dataset.rewards.sum()},
-        #     on_step=False,
-        #     on_epoch=True,
-        #     prog_bar=True,
-        # )
-
         # Increment epoch counter and reset when reaching update_epochs.
         self.current_update_epoch += 1
         if self.current_update_epoch >= self.config.update_epochs:
@@ -179,7 +172,7 @@ class GymnasiumModule(pl.LightningModule):
                 optimizer.step()  # Update weights
 
                 # Logging(optional)
-                self.log_dict(metrics, on_step=True, on_epoch=True, prog_bar=False)
+                self.log_dict(metrics, on_step=False, on_epoch=True, prog_bar=False)
 
         # Return None or a dictionary (optional)
         return None
