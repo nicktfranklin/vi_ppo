@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+from typing import Tuple, Union
+
 import numpy as np
 import torch
 from torch import nn
@@ -6,8 +9,21 @@ from torch.nn import functional as F
 from vi_ppo.nets.quantizers import FSQ, LFQ, VectorQuantizeEMA
 
 
+@dataclass
+class VQVAEArgs:
+    in_channel: int
+    channel: int
+    embed_dim: int
+    quantizer: str
+    n_embed: int = None
+    lfq_dim: int = None
+    entropy_loss_weight: float = None
+    codebook_loss_weight: float = None
+    levels: int = None
+
+
 class Encoder(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args: VQVAEArgs):
         """
         Initializes the Encoder module.
 
@@ -45,7 +61,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args: VQVAEArgs):
         """
         Initializes the Decoder module.
 
@@ -87,7 +103,7 @@ class Decoder(nn.Module):
 
 
 class VQVAE(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args: VQVAEArgs):
         """
         Initializes the VQVAE module.
 
@@ -134,6 +150,11 @@ class VQVAE(nn.Module):
         if return_id:
             return dec, diff, id_t
         return dec, diff
+
+    def loss(self, input: torch.Tensor, target: torch.Tensor):
+        reconstruction, codebook_loss = self(input)
+        loss = F.mse_loss(reconstruction, target)
+        return loss + codebook_loss
 
     def encode(
         self, input: torch.Tensor
