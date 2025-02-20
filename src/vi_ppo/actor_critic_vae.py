@@ -65,18 +65,13 @@ class ActorCritic(nn.Module):
         if self.state_vae is None:
             return torch.tensor(0.0), {}
 
-        x_hat, _, logits = self.state_vae(features)
-        reconstruction_loss = (
-            F.mse_loss(x_hat, features, reduction="none").sum(1).mean()
-        )
-        kl_divergence = self.state_vae.kl_divergence(logits)
+        loss = self.state_vae.loss(features)
 
         metrics = {
-            "train/vae/reconstruction_loss": reconstruction_loss,
-            "train/vae/kl_divergence": kl_divergence,
+            "train/vae_loss": loss,
         }
 
-        return reconstruction_loss + kl_divergence, metrics
+        return loss, metrics
 
     def loss(
         self, batch: dict[str, torch.Tensor], return_metrics: bool = False
