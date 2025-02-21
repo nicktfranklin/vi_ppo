@@ -10,16 +10,20 @@ from vi_ppo.nets.quantizers import FSQ, LFQ, VectorQuantizeEMA
 
 @dataclass
 class VQVAEArgs:
+    z_dim: int = 8
+    z_layers: int = 8
     embed_dim: int = 256
     quantizer: str = "fsq"
     n_embed: int = 1024
     lfq_dim: int = None
     entropy_loss_weight: float = None
     codebook_loss_weight: float = None
-    levels: list = field(default_factory=lambda: [8, 5, 5, 5])
+    levels: list = field(default_factory=lambda: [8, 6, 5])
 
 
 class VQVAE(nn.Module):
+    config_cls = VQVAEArgs
+
     def __init__(self, encoder: nn.Module, decoder: nn.Module, args: VQVAEArgs):
         """
         Initializes the VQVAE module.
@@ -63,13 +67,16 @@ class VQVAE(nn.Module):
             Union[Tuple[torch.Tensor, torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]: Decoded tensor, quantization loss, and optionally the quantized indices.
         """
         quant_t, diff, id_t = self.encode(input)
-        dec = self.dec(quant_t)
+        dec = self.dec(quant_t.view(-1, self.args.z_layers * self.args.z_dim))
         if return_id:
             return dec, diff, id_t
         return dec, diff
 
-    def loss(self, input: torch.Tensor, target: torch.Tensor):
-        reconstruction, codebook_loss = self(input)
+    def loss(
+        self, input: torch.Tensor, target: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        reconstruction, codebook_loss = self(input, return_id=False)
+        target = input if target is None else target
         loss = F.mse_loss(reconstruction, target)
         return loss + codebook_loss
 
@@ -85,13 +92,13 @@ class VQVAE(nn.Module):
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Quantized tensor, quantization loss, and quantized indices.
         """
-        logits = self.enc(input)
+        logits = self.enc(input).view(-1, self.args.z_layers, self.args.z_dim)
         if self.args.quantizer == "ema" or self.args.quantizer == "origin":
             quant_t, diff_t, id_t = self.quantize_t(logits)
             diff_t = diff_t.unsqueeze(0)
         elif self.args.quantizer == "fsq":
             quant_t, id_t = self.quantize_t(logits)
-            diff_t = torch.tensor(0.0).cuda().float()
+            diff_t = torch.tensor(0.0).to(quant_t.device).float()
         elif self.args.quantizer == "lfq":
             quant_t, id_t, diff_t = self.quantize_t(logits)
         return quant_t, diff_t, id_t
