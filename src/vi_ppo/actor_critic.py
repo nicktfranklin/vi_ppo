@@ -25,6 +25,7 @@ class ActorCritic(nn.Module):
         critic: nn.Module,
         feature_extractor: nn.Module | None = None,
         state_vae: nn.Module | None = None,
+        transtion_network: nn.Module | None = None,
     ):
         super().__init__()
         self.config = config
@@ -34,6 +35,7 @@ class ActorCritic(nn.Module):
             feature_extractor if feature_extractor else nn.Identity()
         )
         self.state_vae = state_vae  # allow for None
+        self.transtion_network = transtion_network  # allow for None
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.feature_extractor(x)
@@ -55,7 +57,9 @@ class ActorCritic(nn.Module):
             return features
         return self.state_vae.encode(features)
 
-    def vae_loss(self, features: torch.Tensor) -> torch.Tensor:
+    def vae_loss(
+        self, features: torch.Tensor, batch: dict[str, torch.Tensor]
+    ) -> torch.Tensor:
         """Note: the VAE operaterates on the features, not raw input.  The logic of this
         is to allow for a simpler VAE architecture.
 
@@ -65,13 +69,28 @@ class ActorCritic(nn.Module):
         if self.state_vae is None:
             return torch.tensor(0.0), {}
 
-        loss = self.state_vae.loss(features)
-
+        vae_loss, state = self.state_vae.loss(features)
         metrics = {
-            "train/vae_loss": loss,
+            "train/vae_loss": vae_loss,
         }
 
-        return loss, metrics
+        if self.transtion_network is not None:
+            # get the next state
+            next_obs_features = self.feature_extractor(batch["next_observations"])
+            _vae_loss, next_state = self.transtion_network.loss(
+                features, next_obs_features
+            )
+            vae_loss += _vae_loss
+
+            next_state_pred = self.transtion_network(state)
+            transition_loss = F.mse_loss(next_state_pred, next_state)
+
+            metrics = {
+                "train/vae_loss": vae_loss,
+                "train/transition_loss": transition_loss,
+            }
+
+        return vae_loss, metrics
 
     def loss(
         self, batch: dict[str, torch.Tensor], return_metrics: bool = False
@@ -115,7 +134,7 @@ class ActorCritic(nn.Module):
         entropy = dist.entropy().mean()
 
         # VAE loss
-        vae_loss, vae_metrics = self.vae_loss(features)
+        vae_loss, vae_metrics = self.vae_loss(features, batch)
 
         # Total loss
         total_loss = (

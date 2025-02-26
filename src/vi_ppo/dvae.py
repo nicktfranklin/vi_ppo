@@ -76,7 +76,7 @@ class DiscreteVae(nn.Module):
         return kl * self.config.beta
 
     def loss(self, x: torch.Tensor) -> torch.Tensor:
-        x_hat, _, latents = self(x)
+        x_hat, z, latents = self(x)
         recon_loss = F.mse_loss(x_hat, x, reduction="none").sum(1).mean()
         kl_loss = self.kl_divergence(latents)
-        return recon_loss + kl_loss * self.config.beta
+        return recon_loss + kl_loss * self.config.beta, z
