@@ -25,7 +25,8 @@ class ActorCritic(nn.Module):
         critic: nn.Module,
         feature_extractor: nn.Module | None = None,
         state_vae: nn.Module | None = None,
-        transtion_network: nn.Module | None = None,
+        transition_network: nn.Module | None = None,
+        action_embeddings: nn.Module | None = None,
     ):
         super().__init__()
         self.config = config
@@ -35,7 +36,8 @@ class ActorCritic(nn.Module):
             feature_extractor if feature_extractor else nn.Identity()
         )
         self.state_vae = state_vae  # allow for None
-        self.transtion_network = transtion_network  # allow for None
+        self.transition_network = transition_network  # allow for None
+        self.action_embeddings = action_embeddings  # allow for None
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.feature_extractor(x)
@@ -74,16 +76,20 @@ class ActorCritic(nn.Module):
             "train/vae_loss": vae_loss,
         }
 
-        if self.transtion_network is not None:
+        if self.transition_network is not None:
+            """model takes in states and actions and predicts the next state and the reward"""
+
             # get the next state
             next_obs_features = self.feature_extractor(batch["next_observations"])
-            _vae_loss, next_state = self.transtion_network.loss(
-                features, next_obs_features
-            )
+            _vae_loss, next_state = self.state_vae.loss(next_obs_features)
             vae_loss += _vae_loss
 
-            next_state_pred = self.transtion_network(state)
-            transition_loss = F.mse_loss(next_state_pred, next_state)
+            action = self.action_embeddings(batch["actions"])
+
+            y_hat = self.transition_network(torch.cat([state, action], dim=-1))
+
+            target = torch.cat([next_state, batch["rewards"]], dim=-1)
+            transition_loss = F.mse_loss(y_hat, target)
 
             metrics = {
                 "train/vae_loss": vae_loss,

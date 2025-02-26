@@ -21,6 +21,8 @@ class Vae(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
 
+        self.log_var = torch.log(torch.tensor([self.config.sigma]))
+
     def forward(
         self, x: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -63,12 +65,12 @@ class Vae(nn.Module):
         Returns:
             Tensor: The KL divergence summed over the dimensions.
         """
+        logvar_p = self.log_var.to(logvar_q.device)
+        mu_p = torch.tensor([0.0]).to(mu_q.device)
+
         # Calculate elementwise variances
         var_q = torch.exp(logvar_q)
-
-        mu_p = 0.0
-        var_p = self.config.sigma**2
-        logvar_p = torch.log(var_p)
+        var_p = torch.exp(logvar_p)
 
         # Compute the KL divergence term by term
         kl = 0.5 * (logvar_p - logvar_q + (var_q + (mu_q - mu_p) ** 2) / var_p - 1)
