@@ -88,7 +88,7 @@ class ActorCritic(nn.Module):
 
             y_hat = self.transition_network(torch.cat([state, action], dim=-1))
 
-            target = torch.cat([next_state, batch["rewards"]], dim=-1)
+            target = torch.cat([next_state, batch["rewards"].unsqueeze(1)], dim=-1)
             transition_loss = F.mse_loss(y_hat, target)
 
             metrics = {
