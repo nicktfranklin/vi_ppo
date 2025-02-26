@@ -147,6 +147,7 @@ class GymnasiumModule(pl.LightningModule):
         return self.collocate_data(batch)
 
     def training_step(self, batch, batch_idx):
+        self.train()
         # Get the optimizer (if you have one)
         optimizer = self.optimizers()
 
@@ -179,6 +180,11 @@ class GymnasiumModule(pl.LightningModule):
 
     def configure_optimizers(self):
         return optim.Adam(self.actor_critic.parameters(), lr=self.config.lr)
+
+    def validation_step(self, batch, batch_idx):
+        self.eval()
+
+        return None
 
 
 class ThreadTheNeedleModule(GymnasiumModule):

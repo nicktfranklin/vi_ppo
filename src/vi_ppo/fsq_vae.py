@@ -24,7 +24,7 @@ class VQVAEArgs:
 class VQVAE(nn.Module):
     config_cls = VQVAEArgs
 
-    def __init__(self, encoder: nn.Module, decoder: nn.Module, args: VQVAEArgs):
+    def __init__(self, encoder: nn.Module, decoder: nn.Module, config: VQVAEArgs):
         """
         Initializes the VQVAE module.
 
@@ -32,19 +32,21 @@ class VQVAE(nn.Module):
             args: A namespace containing the arguments for the VQVAE.
         """
         super().__init__()
-        self.args = args
+        self.config = config
 
-        if args.quantizer == "ema" or args.quantizer == "origin":
-            self.quantize_t = VectorQuantizeEMA(args, args.embed_dim, args.n_embed)
-        elif args.quantizer == "lfq":
-            self.quantize_t = LFQ(
-                codebook_size=2**args.lfq_dim,
-                dim=args.lfq_dim,
-                entropy_loss_weight=args.entropy_loss_weight,
-                commitment_loss_weight=args.codebook_loss_weight,
+        if config.quantizer == "ema" or config.quantizer == "origin":
+            self.quantize_t = VectorQuantizeEMA(
+                config, config.embed_dim, config.n_embed
             )
-        elif args.quantizer == "fsq":
-            self.quantize_t = FSQ(levels=args.levels)
+        elif config.quantizer == "lfq":
+            self.quantize_t = LFQ(
+                codebook_size=2**config.lfq_dim,
+                dim=config.lfq_dim,
+                entropy_loss_weight=config.entropy_loss_weight,
+                commitment_loss_weight=config.codebook_loss_weight,
+            )
+        elif config.quantizer == "fsq":
+            self.quantize_t = FSQ(levels=config.levels)
         else:
             print("quantizer error!")
             exit()
@@ -92,14 +94,14 @@ class VQVAE(nn.Module):
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Quantized tensor, quantization loss, and quantized indices.
         """
-        logits = self.enc(input).view(-1, self.args.z_layers, self.args.z_dim)
-        if self.args.quantizer == "ema" or self.args.quantizer == "origin":
+        logits = self.enc(input).view(-1, self.config.z_layers, self.config.z_dim)
+        if self.config.quantizer == "ema" or self.config.quantizer == "origin":
             quant_t, diff_t, id_t = self.quantize_t(logits)
             diff_t = diff_t.unsqueeze(0)
-        elif self.args.quantizer == "fsq":
+        elif self.config.quantizer == "fsq":
             quant_t, id_t = self.quantize_t(logits)
             diff_t = torch.tensor(0.0).to(quant_t.device).float()
-        elif self.args.quantizer == "lfq":
+        elif self.config.quantizer == "lfq":
             quant_t, id_t, diff_t = self.quantize_t(logits)
         return quant_t, diff_t, id_t
 

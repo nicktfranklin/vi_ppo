@@ -19,13 +19,21 @@ class StateHasher:
         s = self.convert_from_onehot(s)
         exists = torch.any(torch.all(self.observed_vectors == s, dim=1))
         if exists:
-            print(torch.where(exists))
+            # print(torch.where(exists))
             return torch.where(exists)[0][0]
         else:
             self.observed_vectors = torch.cat(
                 [self.observed_vectors, s.unsqueeze(0)], dim=0
             )
             return len(self.observed_vectors) - 1
+
+    @property
+    def n(self):
+        return len(self.observed_vectors)
+
+    @property
+    def device(self):
+        return self.observed_vectors.device
 
 
 def estimate_graph_laplacian(
@@ -48,9 +56,7 @@ def estimate_graph_laplacian(
         sp = hasher(sp)
         pairs.append([s, sp])
 
-    print(pairs)
-
-    raise Exception("stop")
+    # raise Exception("stop")
     adjacency_matrix = torch.zeros(hasher.n, hasher.n, device=hasher.device)
     for o, op in zip(buffer.observations, buffer.next_observations):
         with torch.no_grad():
@@ -58,10 +64,8 @@ def estimate_graph_laplacian(
             op = torch.from_numpy(op).float()
             s = module.get_state(o)
             sp = module.get_state(op)
-            print(hasher(s), hasher(sp))
         adjacency_matrix[hasher(s), hasher(sp)] = 1
 
-    print(adjacency_matrix, adjacency_matrix.sum(dim=1))
     degree_matrix = torch.diag(adjacency_matrix.sum(dim=1))
 
     if normalized:
