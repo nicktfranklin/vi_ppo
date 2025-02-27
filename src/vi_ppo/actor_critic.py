@@ -12,7 +12,7 @@ class ActorCriticConfig:
     entropy_coeff: float = 0.01
     normalize_advantages: bool = True
 
-    vae_loss_coeff: float = 1.0
+    state_inference_coeff: float = 1.0
 
 
 class ActorCritic(nn.Module):
@@ -59,7 +59,7 @@ class ActorCritic(nn.Module):
             return features
         return self.state_vae.encode(features)
 
-    def vae_loss(
+    def state_inference_loss(
         self, features: torch.Tensor, batch: dict[str, torch.Tensor]
     ) -> torch.Tensor:
         """Note: the VAE operaterates on the features, not raw input.  The logic of this
@@ -71,7 +71,7 @@ class ActorCritic(nn.Module):
         if self.state_vae is None:
             return torch.tensor(0.0), {}
 
-        vae_loss, state = self.state_vae.loss(features)
+        vae_loss, state = self.state_vae.loss(features.detach())
         metrics = {
             "train/vae_loss": vae_loss,
         }
@@ -80,7 +80,8 @@ class ActorCritic(nn.Module):
             """model takes in states and actions and predicts the next state and the reward"""
 
             # get the next state
-            next_obs_features = self.feature_extractor(batch["next_observations"])
+            with torch.no_grad():
+                next_obs_features = self.feature_extractor(batch["next_observations"])
             _vae_loss, next_state = self.state_vae.loss(next_obs_features)
             vae_loss += _vae_loss
 
@@ -140,14 +141,16 @@ class ActorCritic(nn.Module):
         entropy = dist.entropy().mean()
 
         # VAE loss
-        vae_loss, vae_metrics = self.vae_loss(features, batch)
+        state_inference_loss, state_inference_metrics = self.state_inference_loss(
+            features, batch
+        )
 
         # Total loss
         total_loss = (
             policy_loss
             + self.config.value_coeff * value_loss
             - self.config.entropy_coeff * entropy
-            + self.config.vae_loss_coeff * vae_loss
+            + self.config.state_inference_coeff * state_inference_loss
         )
         if return_metrics:
             metrics = {
@@ -155,8 +158,8 @@ class ActorCritic(nn.Module):
                 "train/policy_loss": policy_loss,
                 "train/loss": total_loss,
             }
-            if (self.state_vae is not None) and (self.config.vae_loss_coeff > 0):
-                metrics.update(vae_metrics)
+            if (self.state_vae is not None) and (self.config.state_inference_coeff > 0):
+                metrics.update(state_inference_metrics)
 
             return total_loss, metrics
         return total_loss

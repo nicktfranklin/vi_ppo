@@ -17,13 +17,16 @@ class ConvBlock(nn.Module):
         stride=1,
         padding=1,
         activation="elu",
+        use_batch_norm=True,
     ):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.norm = nn.BatchNorm2d(out_channels) if use_batch_norm else nn.Identity()
         self.act = get_activation(activation)
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.conv(x)
+        x = self.norm(x)
         x = self.act(x)
         return x
 

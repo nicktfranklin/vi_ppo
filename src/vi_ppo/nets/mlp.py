@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from vi_ppo.nets.utils import get_activation
 
@@ -13,6 +14,7 @@ class MlpConfig:
     hidden_dims: int
     n_layers: int
     activation: str = "silu"
+    norm: bool = False
 
 
 class Mlp(nn.Module):
@@ -38,10 +40,14 @@ class Mlp(nn.Module):
             ]
         )
         self.act_fn = get_activation(config.activation)
+        self.norm = config.norm
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.input_projection(x)
         for layer in self.hidden_layers:
             x = self.act_fn(layer(x)) + x
+
+        if self.norm:
+            x = F.layer_norm(x, x.size()[1:])
         x = self.output_projection(x)
         return x
